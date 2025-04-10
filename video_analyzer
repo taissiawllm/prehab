@@ -1,3 +1,4 @@
+#author: taissia willemsen 
 import cv2
 import mediapipe as mp
 import math
