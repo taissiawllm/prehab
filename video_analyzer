@@ -1,0 +1,134 @@
+import cv2
+import mediapipe as mp
+import math
+
+# Initialize MediaPipe Pose model
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+# Function to calculate angle between three points
+def calculate_angle(a, b, c):
+    a = [a.x, a.y]
+    b = [b.x, b.y]
+    c = [c.x, c.y]
+    
+    # Calculate vectors
+    ab = [a[0] - b[0], a[1] - b[1]]
+    bc = [c[0] - b[0], c[1] - b[1]]
+    
+    # Calculate dot product and magnitudes
+    dot_product = ab[0] * bc[0] + ab[1] * bc[1]
+    mag_ab = math.sqrt(ab[0]**2 + ab[1]**2)
+    mag_bc = math.sqrt(bc[0]**2 + bc[1]**2)
+    
+    # Calculate the cosine of the angle
+    cos_theta = dot_product / (mag_ab * mag_bc)
+    
+    # Calculate the angle in degrees
+    angle = math.degrees(math.acos(cos_theta))
+    
+    return angle
+
+# Check for back straightness (side view)
+def check_back_straight(landmarks):
+    left_ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+    left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+    left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+
+    # Calculate angle between ankle, hip, and shoulder
+    back_angle = calculate_angle(left_ankle, left_hip, left_shoulder)
+
+    # If the angle is within a certain range, assume the back is straight
+    if 160 < back_angle < 180:
+        return True
+    else:
+        return False
+
+# Check knee position in relation to feet (side view)
+def check_knee_position(landmarks):
+    left_knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
+    left_ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+
+    # Calculate the vertical distance between the knee and ankle
+    knee_distance = abs(left_knee.y - left_ankle.y)
+
+    # Check if knee is ahead of the toes (threshold can be adjusted)
+    if knee_distance > 0.1:
+        return False  # Knees ahead of toes, incorrect form
+    else:
+        return True  # Correct form, knees aligned with toes
+
+# Check squat depth (side view)
+def check_squat_depth(landmarks):
+    left_knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
+    left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+
+    # Calculate the vertical distance between knee and hip
+    squat_depth = abs(left_knee.y - left_hip.y)
+
+    # If the knee is lower than the hip by a certain threshold, it's a deep squat
+    if squat_depth > 0.2:
+        return "Deep Squat"
+    else:
+        return "Shallow Squat"
+
+# Analyze squat from video
+def analyze_squat_from_video(video_path):
+    # Open video
+    cap = cv2.VideoCapture(video_path)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('squat_landmark.mp4', fourcc, 20.0, (640, 480))
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Process frame with MediaPipe
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(frame_rgb)
+
+        # Check if landmarks are detected
+        if results.pose_landmarks:
+            # Draw pose landmarks on the frame
+            mp.solutions.drawing_utils.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+            # Analyze squat
+            landmarks = results.pose_landmarks.landmark
+
+            # Determine if it's a side or front view
+            shoulder_angle = calculate_angle(landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER],
+                                             landmarks[mp_pose.PoseLandmark.LEFT_ELBOW],
+                                             landmarks[mp_pose.PoseLandmark.LEFT_WRIST])
+
+            if 70 < shoulder_angle < 110:
+                print("Side view detected. Analyzing squat form:")
+                back_straight = check_back_straight(landmarks)
+                knee_position = check_knee_position(landmarks)
+                squat_depth = check_squat_depth(landmarks)
+
+                print("Spine straight:", "Yes" if back_straight else "No")
+                print("Knees above feet:", "Yes" if knee_position else "No")
+                print("Squat depth:", squat_depth)
+            else:
+                print("Front view detected. Analyzing squat form:")
+                # Implement front view analysis (e.g., feet width, knee instability detection)
+                print("Squat is being analyzed from the front view.")
+
+        # Write the frame with landmarks to the output video
+        out.write(frame)
+
+        # Display the frame with landmarks
+        cv2.imshow('Squat Analysis', frame)
+
+        # Break loop on key press
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+# Run analysis
+video_path = '/Users/taissiawillemsen/Coding/squat/squat.mp4'  
+analyze_squat_from_video(video_path)
