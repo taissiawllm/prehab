@@ -1,0 +1,80 @@
+# Add imports at the top if needed
+import numpy as np
+
+# Inside analyze_squat_from_video
+def analyze_squat_from_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('squat_landmark.mp4', fourcc, 20.0, (640, 480))
+
+    min_squat_depth = float('inf')
+    max_knee_distance = 0
+    min_knee_distance = float('inf')
+    back_angles = []
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(frame_rgb)
+
+        if results.pose_landmarks:
+            mp.solutions.drawing_utils.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+            landmarks = results.pose_landmarks.landmark
+
+            shoulder_angle = calculate_angle(landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER],
+                                             landmarks[mp_pose.PoseLandmark.LEFT_ELBOW],
+                                             landmarks[mp_pose.PoseLandmark.LEFT_WRIST])
+            
+            if 70 < shoulder_angle < 110:  # Side view
+                back_angle = calculate_angle(
+                    landmarks[mp_pose.PoseLandmark.LEFT_ANKLE],
+                    landmarks[mp_pose.PoseLandmark.LEFT_HIP],
+                    landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+                )
+                back_angles.append(back_angle)
+
+                # Squat depth
+                knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
+                hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+                squat_depth = abs(knee.y - hip.y)
+                min_squat_depth = min(min_squat_depth, squat_depth)
+
+                # Knee to ankle (forward movement)
+                ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+                knee_distance = abs(knee.y - ankle.y)
+                max_knee_distance = max(max_knee_distance, knee_distance)
+                min_knee_distance = min(min_knee_distance, knee_distance)
+
+        out.write(frame)
+        cv2.imshow('Squat Analysis', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+    # Final Evaluation
+    print("\n=== Final Squat Form Analysis ===")
+
+    # Spine Straightness
+    avg_back_angle = np.mean(back_angles) if back_angles else 0
+    if avg_back_angle > 160:
+        print("✅ Spine: Straight overall")
+    else:
+        print("❌ Spine: Not straight enough")
+
+    # Squat Depth
+    if min_squat_depth > 0.2:
+        print("✅ Squat Depth: Deep squat achieved")
+    else:
+        print("❌ Squat Depth: Shallow squat")
+
+    # Knee Stability
+    if (max_knee_distance - min_knee_distance) > 0.1:
+        print("❌ Knee Stability: Knees moved too much (unstable)")
+    else:
+        print("✅ Knee Stability: Stable knee position throughout")
